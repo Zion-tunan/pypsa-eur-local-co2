@@ -847,6 +847,7 @@ def attach_storageunits(n, costs, extendable_carriers, max_hours):
     n.add("Carrier", carriers)
 
     buses_i = n.buses.index
+    additional_h2_bus = ["EU additional H2"]
 
     lookup_store = {"H2": "electrolysis", "battery": "battery inverter"}
     lookup_dispatch = {"H2": "fuel cell", "battery": "battery inverter"}
@@ -854,22 +855,43 @@ def attach_storageunits(n, costs, extendable_carriers, max_hours):
     for carrier in carriers:
         roundtrip_correction = 0.5 if carrier == "battery" else 1
 
-        n.add(
-            "StorageUnit",
-            buses_i,
-            " " + carrier,
-            bus=buses_i,
-            carrier=carrier,
-            p_nom_extendable=True,
-            capital_cost=costs.at[carrier, "capital_cost"],
-            marginal_cost=costs.at[carrier, "marginal_cost"],
-            efficiency_store=costs.at[lookup_store[carrier], "efficiency"]
-            ** roundtrip_correction,
-            efficiency_dispatch=costs.at[lookup_dispatch[carrier], "efficiency"]
-            ** roundtrip_correction,
-            max_hours=max_hours[carrier],
-            cyclic_state_of_charge=True,
-        )
+        if carrier == "Additional_H2":
+            n.add(
+                "StorageUnit",
+                name="EU additional H2 StorageUnit",
+                bus=additional_h2_bus[0],
+                carrier=carrier,
+                p_nom_extendable=True,
+                #capital_cost=costs.at[carrier, "capital_cost"],
+                capital_cost=0,
+                #marginal_cost=costs.at[carrier, "marginal_cost"],
+                marginal_cost=0,
+                #efficiency_store=costs.at[lookup_store[carrier], "efficiency"]
+                                 #** roundtrip_correction,
+                #efficiency_dispatch=costs.at[lookup_dispatch[carrier], "efficiency"]
+                                    #** roundtrip_correction,
+                efficiency_store=1,
+                efficiency_dispatch=1,
+                max_hours=max_hours[carrier],
+                cyclic_state_of_charge=True,
+            )
+        else:
+            n.add(
+                "StorageUnit",
+                buses_i,
+                " " + carrier,
+                bus=buses_i,
+                carrier=carrier,
+                p_nom_extendable=True,
+                capital_cost=costs.at[carrier, "capital_cost"],
+                marginal_cost=costs.at[carrier, "marginal_cost"],
+                efficiency_store=costs.at[lookup_store[carrier], "efficiency"]
+                                 ** roundtrip_correction,
+                efficiency_dispatch=costs.at[lookup_dispatch[carrier], "efficiency"]
+                                    ** roundtrip_correction,
+                max_hours=max_hours[carrier],
+                cyclic_state_of_charge=True,
+            )
 
 
 def attach_stores(n, costs, extendable_carriers):

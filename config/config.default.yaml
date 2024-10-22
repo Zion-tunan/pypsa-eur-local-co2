@@ -102,12 +102,16 @@ electricity:
   max_hours:
     battery: 6
     H2: 168
+    Additional_H2: 168
 
   extendable_carriers:
     Generator: [solar, solar-hsat, onwind, offwind-ac, offwind-dc, offwind-float, OCGT, CCGT]
-    StorageUnit: [] # battery, H2
+    StorageUnit: [Additional_H2] # battery, H2, Additional_H2
     Store: [battery, H2]
     Link: [] # H2 pipeline
+
+  Additional_h2_demand:
+    Type: [constant] # Zero, constant or variable
 
   powerplants_filter: (DateOut >= 2023 or DateOut != DateOut) and not (Country == 'Germany' and Fueltype == 'Nuclear')
   custom_powerplants: false
@@ -1247,6 +1251,9 @@ plotting:
     H2 for industry: "#f073da"
     H2 for shipping: "#ebaee0"
     H2: '#bf13a0'
+    # Need to find 2 appropriate color for this carrier
+    Additional_H: '#8487e8'
+    Additional_H2_transport: '#8487e8'
     hydrogen: '#bf13a0'
     retrofitted H2 boiler: '#e5a0d9'
     SMR: '#870c71'

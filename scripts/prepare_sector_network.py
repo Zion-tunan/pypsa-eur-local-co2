@@ -147,6 +147,11 @@ def define_spatial(nodes, options):
     spatial.h2.nodes = nodes + " H2"
     spatial.h2.locations = nodes
 
+    # Additional hydrogen demand
+    spatial.additionalh2 = SimpleNamespace()
+    spatial.additionalh2.nodes = ["EU additional H2"]
+    spatial.additionalh2.locations = ["EU"]
+
     # methanol
 
     # beware: unlike other carriers, uses locations rather than locations+carriername
@@ -1358,6 +1363,51 @@ def add_storage_and_grids(n, costs):
     n.add("Carrier", "H2")
 
     n.add("Bus", nodes + " H2", location=nodes, carrier="H2", unit="MWh_LHV")
+
+    n.add("Carrier", "Additional_H2")
+
+    n.add("Bus", spatial.additionalh2.nodes, location=spatial.additionalh2.locations, carrier="Additional_H2", unit="MWh_LHV")
+
+    # add link between hydrogen bus and additional hydrogen demand bus
+    for node in spatial.nodes:
+        n.add(
+            "Link",
+            name=f"{node} to EU additional H2",
+            bus0=f"{node} H2",
+            bus1=spatial.additionalh2.nodes[0],
+            p_nom_extendable=True,
+            carrier="Additional_H2_transport",
+            efficiency=1,
+            # capital_cost=costs.at["h2 pipeline", "fixed"],
+            capital_cost=0,
+            # lifetime=costs.at["h2 pipeline", "lifetime"],
+            lifetime=0,
+            p_max_pu=1,
+        )
+
+    # add additional hydrogen demand
+
+    additional_h2_demand_type = snakemake.params.additional_h2_demand_type
+
+    additional_h2_demand_df = pd.read_csv(snakemake.input.additional_h2_demand)
+
+    if additional_h2_demand_type == "zero":
+        p_set = [0] * 8760
+    elif additional_h2_demand_type == "constant":
+        #p_set = additional_h2_demand_df.iloc[1:, 1].values
+        p_set = [2000] * 8760
+    elif additional_h2_demand_type == "variable":
+        p_set = additional_h2_demand_df.iloc[1:, 2].values
+    else:
+        raise ValueError(f"Unknown additional_h2_demand_type: {additional_h2_demand_type}")
+
+    n.add(
+        "Load",
+        name=spatial.additionalh2.nodes[0] + " load",
+        bus=spatial.additionalh2.nodes[0],
+        carrier="Additional_H2",
+        p_set=p_set,
+    )
 
     n.add(
         "Link",

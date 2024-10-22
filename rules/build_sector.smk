@@ -1028,6 +1028,7 @@ rule prepare_sector_network:
         heat_pump_sources=config_provider("sector", "heat_pump_sources"),
         heat_systems=config_provider("sector", "heat_systems"),
         energy_totals_year=config_provider("energy", "energy_totals_year"),
+        additional_h2_demand_type = config_provider("electricity", "Additional_h2_demand", "Type"),
     input:
         unpack(input_profile_offwind),
         **rules.cluster_gas_network.output,
@@ -1124,6 +1125,7 @@ rule prepare_sector_network:
             if config_provider("sector", "enhanced_geothermal", "enable")(w)
             else []
         ),
+        additional_h2_demand="data/Additional_h2_demand.csv",
     output:
         RESULTS
         + "prenetworks/base_s_{clusters}_l{ll}_{opts}_{sector_opts}_{planning_horizons}.nc",
