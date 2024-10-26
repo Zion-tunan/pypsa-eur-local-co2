@@ -1029,6 +1029,9 @@ rule prepare_sector_network:
         heat_systems=config_provider("sector", "heat_systems"),
         energy_totals_year=config_provider("energy", "energy_totals_year"),
         additional_h2_demand_type = config_provider("electricity", "Additional_h2_demand", "Type"),
+        additional_h2_demand_value = config_provider("electricity", "Additional_h2_demand", "Value"),
+        additional_h2_storage = config_provider("electricity","extendable_carriers", "Store"),
+        max_hours = config_provider("electricity", "max_hours"),
     input:
         unpack(input_profile_offwind),
         **rules.cluster_gas_network.output,

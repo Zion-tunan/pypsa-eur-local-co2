@@ -676,6 +676,7 @@ rule add_electricity:
         ),
         aggregation_strategies=config_provider("clustering", "aggregation_strategies"),
         exclude_carriers=config_provider("clustering", "exclude_carriers"),
+        additional_h2_demand_value = config_provider("electricity", "Additional_h2_demand", "Value"),
     input:
         unpack(input_profile_tech),
         unpack(input_conventional),

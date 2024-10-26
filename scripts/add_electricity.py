@@ -894,8 +894,11 @@ def attach_storageunits(n, costs, extendable_carriers, max_hours):
             )
 
 
-def attach_stores(n, costs, extendable_carriers):
+def attach_stores(n, costs, extendable_carriers, max_hours):
     carriers = extendable_carriers["Store"]
+
+    carriers_str = ", ".join(carriers)
+    logger.info(f"System is starting to load Stores for carriers: {carriers_str}.")
 
     n.add("Carrier", carriers)
 
@@ -980,6 +983,68 @@ def attach_stores(n, costs, extendable_carriers):
             efficiency=costs.at["battery inverter", "efficiency"] ** 0.5,
             p_nom_extendable=True,
             marginal_cost=costs.at["battery inverter", "marginal_cost"],
+        )
+
+    if "Additional_H2" in carriers:
+
+        # Now we can only deal with the constant additional hydrogen demand situation
+
+        additional_h2_bus = n.add("Bus", "EU additional H2", carrier="Additional_H2", location="EU")
+
+        additional_h2_store_bus = n.add("Bus", "EU additional H2 Store", carrier="Additional_H2", location="EU")
+
+        additional_h2_demand_value = snakemake.params.additional_h2_demand_value
+
+        max_hours_value = max_hours["Additional_H2"]
+        e_nom = (max_hours_value / 8760) * (additional_h2_demand_value * 1000000)
+
+        logger.info(f"max_hours['Additional_H2']: {max_hours_value}")
+        logger.info(f"e_nom (calculated): {e_nom}")
+
+        additional_h2_bus = ["EU additional H2"]
+
+        n.add(
+            "Store",
+            additional_h2_store_bus,
+            bus=additional_h2_store_bus,
+            carrier="Additional_H2",
+            e_nom_extendable=False,
+            e_nom=e_nom,
+            e_cyclic=True,
+            #capital_cost=costs.at["hydrogen storage underground", "capital_cost"],
+            capital_cost=0,
+            marginal_cost=0,
+        )
+
+        n.add(
+            "Link",
+            additional_h2_store_bus + " Charging",
+            bus0=additional_h2_bus,
+            bus1=additional_h2_store_bus,
+            carrier="Additional_H2",
+            p_nom_extendable=True,
+            #efficiency=costs.at["electrolysis", "efficiency"],
+            efficiency=1,
+            #capital_cost=costs.at["electrolysis", "capital_cost"],
+            capital_cost=0,
+            #marginal_cost=costs.at["electrolysis", "marginal_cost"],
+            marginal_cost=0,
+        )
+
+        n.add(
+            "Link",
+            additional_h2_store_bus + " Discharging",
+            bus0=additional_h2_store_bus,
+            bus1=additional_h2_bus,
+            carrier="Additional_H2",
+            p_nom_extendable=True,
+            #efficiency=costs.at["fuel cell", "efficiency"],
+            efficiency=1,
+            #capital_cost=costs.at["fuel cell", "capital_cost"]
+            #* costs.at["fuel cell", "efficiency"],
+            capital_cost=0,
+            #marginal_cost=costs.at["fuel cell", "marginal_cost"],
+            marginal_cost=0,
         )
 
 
@@ -1112,7 +1177,7 @@ if __name__ == "__main__":
     update_p_nom_max(n)
 
     attach_storageunits(n, costs, extendable_carriers, max_hours)
-    attach_stores(n, costs, extendable_carriers)
+    attach_stores(n, costs, extendable_carriers, max_hours)
 
     sanitize_carriers(n, snakemake.config)
     if "location" in n.buses:

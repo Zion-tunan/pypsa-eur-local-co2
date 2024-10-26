@@ -150,6 +150,7 @@ def define_spatial(nodes, options):
     # Additional hydrogen demand
     spatial.additionalh2 = SimpleNamespace()
     spatial.additionalh2.nodes = ["EU additional H2"]
+    spatial.additionalh2.stores = ["EU additional H2 Store"]
     spatial.additionalh2.locations = ["EU"]
 
     # methanol
@@ -1366,7 +1367,12 @@ def add_storage_and_grids(n, costs):
 
     n.add("Carrier", "Additional_H2")
 
-    n.add("Bus", spatial.additionalh2.nodes, location=spatial.additionalh2.locations, carrier="Additional_H2", unit="MWh_LHV")
+    n.add("Carrier", "Additional_H2_transport")
+
+    n.add("Bus", spatial.additionalh2.nodes[0], location=spatial.additionalh2.locations[0], carrier="Additional_H2", unit="MWh_LHV")
+
+    n.add("Bus", spatial.additionalh2.stores[0], location=spatial.additionalh2.locations[0], carrier="Additional_H2",
+          unit="MWh_LHV")
 
     # add link between hydrogen bus and additional hydrogen demand bus
     for node in spatial.nodes:
@@ -1381,13 +1387,16 @@ def add_storage_and_grids(n, costs):
             # capital_cost=costs.at["h2 pipeline", "fixed"],
             capital_cost=0,
             # lifetime=costs.at["h2 pipeline", "lifetime"],
-            lifetime=0,
+            lifetime=100,
             p_max_pu=1,
+            p_min_pu=0,
         )
 
-    # add additional hydrogen demand
+    # Add additional hydrogen demand
 
     additional_h2_demand_type = snakemake.params.additional_h2_demand_type
+
+    additional_h2_demand_value = snakemake.params.additional_h2_demand_value
 
     additional_h2_demand_df = pd.read_csv(snakemake.input.additional_h2_demand)
 
@@ -1395,7 +1404,7 @@ def add_storage_and_grids(n, costs):
         p_set = [0] * 8760
     elif additional_h2_demand_type == "constant":
         #p_set = additional_h2_demand_df.iloc[1:, 1].values
-        p_set = [2000] * 8760
+        p_set = [additional_h2_demand_value * 1000000 / 8760] * 8760
     elif additional_h2_demand_type == "variable":
         p_set = additional_h2_demand_df.iloc[1:, 2].values
     else:
@@ -1408,6 +1417,67 @@ def add_storage_and_grids(n, costs):
         carrier="Additional_H2",
         p_set=p_set,
     )
+
+    logger.info(
+        f"Additional hydrogen demand of {additional_h2_demand_value} TWh/year added across the EU."
+    )
+
+    # Add additional H2 storage
+
+    additional_h2_storage = snakemake.params.additional_h2_storage
+    max_hours = snakemake.params.max_hours
+
+    if "Additional_H2" in additional_h2_storage:
+        max_hours_value = max_hours["Additional_H2"]
+        e_nom = (max_hours_value / 8760) * (additional_h2_demand_value * 1000000)
+
+        logger.info(f"max_hours['Additional_H2']: {max_hours_value}")
+        logger.info(f"e_nom (calculated): {e_nom}")
+
+        n.add(
+            "Store",
+            spatial.additionalh2.stores,
+            bus=spatial.additionalh2.stores[0],
+            carrier="Additional_H2",
+            e_nom_extendable=True,
+            e_nom=e_nom,
+            e_cyclic=True,
+            # capital_cost=costs.at["hydrogen storage underground", "capital_cost"],
+            capital_cost=0,
+            marginal_cost=0,
+        )
+
+        n.add(
+            "Link",
+            spatial.additionalh2.stores[0] + " Charging",
+            bus0=spatial.additionalh2.nodes[0],
+            bus1=spatial.additionalh2.stores[0],
+            carrier="Additional_H2",
+            p_nom_extendable=True,
+            # efficiency=costs.at["electrolysis", "efficiency"],
+            efficiency=1,
+            # capital_cost=costs.at["electrolysis", "capital_cost"],
+            capital_cost=0,
+            # marginal_cost=costs.at["electrolysis", "marginal_cost"],
+            marginal_cost=0,
+        )
+
+        n.add(
+            "Link",
+            spatial.additionalh2.stores[0] + " Discharging",
+            bus0=spatial.additionalh2.stores[0],
+            bus1=spatial.additionalh2.nodes[0],
+            carrier="Additional_H2",
+            p_nom_extendable=True,
+            # efficiency=costs.at["fuel cell", "efficiency"],
+            efficiency=1,
+            # capital_cost=costs.at["fuel cell", "capital_cost"]
+            # * costs.at["fuel cell", "efficiency"],
+            capital_cost=0,
+            # marginal_cost=costs.at["fuel cell", "marginal_cost"],
+            marginal_cost=0,
+        )
+
 
     n.add(
         "Link",
