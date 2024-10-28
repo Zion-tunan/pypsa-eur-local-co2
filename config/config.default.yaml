@@ -106,12 +106,13 @@ electricity:
 
   extendable_carriers:
     Generator: [solar, solar-hsat, onwind, offwind-ac, offwind-dc, offwind-float, OCGT, CCGT]
-    StorageUnit: [Additional_H2] # battery, H2, Additional_H2
-    Store: [battery, H2]
+    StorageUnit: [] # battery, H2, Additional_H2
+    Store: [battery, H2, Additional_H2]
     Link: [] # H2 pipeline
 
   Additional_h2_demand:
     Type: [constant] # Zero, constant or variable
+    Value: 2000 # TWh/year, only work under the type equals to constant
 
   powerplants_filter: (DateOut >= 2023 or DateOut != DateOut) and not (Country == 'Germany' and Fueltype == 'Nuclear')
   custom_powerplants: false
@@ -442,12 +443,12 @@ existing_capacities:
 
 # docs in https://pypsa-eur.readthedocs.io/en/latest/configuration.html#sector
 sector:
-  transport: true
-  heating: true
-  biomass: true
-  industry: true
-  agriculture: true
-  fossil_fuels: true
+  transport: false
+  heating: false
+  biomass: false
+  industry: false
+  agriculture: false
+  fossil_fuels: false
   district_heating:
     potential: 0.6
     progress:
