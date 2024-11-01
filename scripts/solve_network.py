@@ -298,21 +298,91 @@ def add_max_growth(n):
     """
 
     opts = snakemake.params["sector"]["limit_max_growth"]
+    logger.info(f"Configured max growth carriers: {opts['max_growth'].keys()}")
+    logger.info(f"Configured max relative growth carriers: {opts['max_relative_growth'].keys()}")
+
     # take maximum yearly difference between investment periods since historic growth is per year
     factor = n.investment_period_weightings.years.max() * opts["factor"]
     for carrier in opts["max_growth"].keys():
-        max_per_period = opts["max_growth"][carrier] * factor
-        logger.info(
-            f"set maximum growth rate per investment period of {carrier} to {max_per_period} GW."
-        )
-        n.carriers.loc[carrier, "max_growth"] = max_per_period * 1e3
+        if carrier in n.carriers.index:
+            max_per_period = opts["max_growth"][carrier] * factor
+            logger.info(
+                f"Set maximum growth rate per investment period of {carrier} to {max_per_period} GW."
+            )
+            n.carriers.loc[carrier, "max_growth"] = max_per_period * 1e3
+        else:
+            logger.warning(f"Carrier {carrier} not found in n.carriers; max growth rate not set.")
+       # max_per_period = opts["max_growth"][carrier] * factor
+       # logger.info(
+       #     f"set maximum growth rate per investment period of {carrier} to {max_per_period} GW."
+       # )
+       # n.carriers.loc[carrier, "max_growth"] = max_per_period * 1e3
 
     for carrier in opts["max_relative_growth"].keys():
-        max_r_per_period = opts["max_relative_growth"][carrier]
+        if carrier in n.carriers.index:
+            max_r_per_period = opts["max_relative_growth"][carrier]
+            logger.info(
+                f"Set maximum relative growth per investment period of {carrier} to {max_r_per_period}."
+            )
+            n.carriers.loc[carrier, "max_relative_growth"] = max_r_per_period
+        else:
+            logger.warning(f"Carrier {carrier} not found in n.carriers; max relative growth rate not set.")
+
+       # max_r_per_period = opts["max_relative_growth"][carrier]
+       # logger.info(
+       #     f"set maximum relative growth per investment period of {carrier} to {max_r_per_period}."
+       # )
+       # n.carriers.loc[carrier, "max_relative_growth"] = max_r_per_period
+
+    return n
+
+def add_max_overnight_limits(n):
+    """
+    Add maximum growth rates for different carriers specifically for the overnight foresight case.
+    """
+
+    opts = snakemake.params["sector"]["limit_max_growth"]
+    factor = opts["factor"]
+
+    # Loop over each carrier and add a constraint for the total capacity
+    for carrier, max_growth in opts["max_growth"].items():
+        max_per_period = max_growth * factor * 1e3  # 转换为 MW
         logger.info(
-            f"set maximum relative growth per investment period of {carrier} to {max_r_per_period}."
+            f"Setting maximum total capacity for {carrier} to {max_per_period} MW in overnight foresight."
         )
-        n.carriers.loc[carrier, "max_relative_growth"] = max_r_per_period
+        
+        # Select all generators for the specified carrier
+        carrier_gens = n.generators[n.generators["carrier"] == carrier].index
+        
+        if carrier_gens.empty:
+            logger.warning(f"No generators found for carrier '{carrier}'. Skipping constraint.")
+            continue
+        
+        
+        # replace inf with one reasonable value to avoid potential mistake
+        current_total_p_nom_max = n.generators.loc[carrier_gens, "p_nom_max"].replace(float('inf'), 1e7).sum()
+        
+        if current_total_p_nom_max > max_per_period:
+            scaling_factor = max_per_period / current_total_p_nom_max
+
+            for gen in carrier_gens:
+                new_p_nom_max = n.generators.at[gen, "p_nom_max"] * scaling_factor
+                p_nom_min = n.generators.at[gen, "p_nom_min"]
+
+                if new_p_nom_max < p_nom_min:
+                    new_p_nom_max = p_nom_min + 1000
+                    logger.warning(
+                        f"Adjusted {gen} p_nom_max to meet minimum limit, set from {p_nom_min} to {new_p_nom_max} MW."
+                    )
+                n.generators.at[gen, "p_nom_max"] = new_p_nom_max
+            logger.info(
+                f"Applied scaling factor of {scaling_factor:.2f} to limit total {carrier} capacity."
+            )
+        else:
+            logger.info(
+                f"Current total capacity for {carrier} ({current_total_p_nom_max} MW) "
+                f"is within the limit of {max_per_period} MW. No scaling applied."
+            )
 
     return n
 
@@ -442,6 +512,10 @@ def prepare_network(
         n = add_land_use_constraint_perfect(n)
         if snakemake.params["sector"]["limit_max_growth"]["enable"]:
             n = add_max_growth(n)
+
+    if foresight == "overnight":
+        if snakemake.params["sector"]["limit_max_growth"]["enable"]:
+            n = add_max_overnight_limits(n)
 
     if n.stores.carrier.eq("co2 sequestered").any():
         limit_dict = co2_sequestration_potential
@@ -956,12 +1030,12 @@ def extra_functionality(n, snapshots):
     if EQ_o := constraints["EQ"]:
         add_EQ_constraints(n, EQ_o.replace("EQ", ""))
 
-    if {"solar-hsat", "solar"}.issubset(
-        config["electricity"]["renewable_carriers"]
-    ) and {"solar-hsat", "solar"}.issubset(
-        config["electricity"]["extendable_carriers"]["Generator"]
-    ):
-        add_solar_potential_constraints(n, config)
+   # if {"solar-hsat", "solar"}.issubset(
+   #     config["electricity"]["renewable_carriers"]
+   # ) and {"solar-hsat", "solar"}.issubset(
+   #     config["electricity"]["extendable_carriers"]["Generator"]
+   # ):
+   #     add_solar_potential_constraints(n, config)
 
     add_battery_constraints(n)
     add_lossy_bidirectional_link_constraints(n)

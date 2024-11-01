@@ -4626,7 +4626,6 @@ def add_enhanced_geothermal(n, egs_potentials, egs_overlap, costs):
                 cyclic_state_of_charge=True,
             )
 
-
 # %%
 if __name__ == "__main__":
     if "snakemake" not in globals():
@@ -4682,6 +4681,7 @@ if __name__ == "__main__":
     heating_efficiencies = pd.read_csv(fn, index_col=[1, 0]).loc[year]
 
     spatial = define_spatial(pop_layout.index, options)
+
 
     if snakemake.params.foresight in ["myopic", "perfect"]:
         add_lifetime_wind_solar(n, costs)
