@@ -1398,7 +1398,12 @@ def add_storage_and_grids(n, costs):
 
     additional_h2_demand_value = snakemake.params.additional_h2_demand_value
 
-    additional_h2_demand_df = pd.read_csv(snakemake.input.additional_h2_demand)
+    additional_h2_demand_df = pd.read_csv(snakemake.input.additional_h2_demand, sep=";")
+    additional_h2_demand_df["Variable H2 demand 01"] = (
+        additional_h2_demand_df["Variable H2 demand 01"]
+        .str.replace(",", ".")
+        .astype(float)
+    )
 
     if additional_h2_demand_type == "zero":
         p_set = [0] * 8760
@@ -1406,7 +1411,9 @@ def add_storage_and_grids(n, costs):
         #p_set = additional_h2_demand_df.iloc[1:, 1].values
         p_set = [additional_h2_demand_value * 1000000 / 8760] * 8760
     elif additional_h2_demand_type == "variable":
-        p_set = additional_h2_demand_df.iloc[1:, 2].values
+        p_set = pd.to_numeric(additional_h2_demand_df["Variable H2 demand 01"], errors='coerce').values
+        # 输出 p_set 总和的百万级值
+        logging.info(f"Sum of p_set (in TWh): {p_set.sum() / 1000000} MW")
     else:
         raise ValueError(f"Unknown additional_h2_demand_type: {additional_h2_demand_type}")
 
