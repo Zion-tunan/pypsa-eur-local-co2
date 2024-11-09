@@ -264,7 +264,7 @@ def add_carbon_constraint(n, snapshots):
             rhs = glc.constant
             n.model.add_constraints(lhs <= rhs, name=f"GlobalConstraint-{name}")
 
-
+# The most important one
 def add_carbon_budget_constraint(n, snapshots):
     glcs = n.global_constraints.query('type == "Co2Budget"')
     if glcs.empty:
@@ -908,27 +908,36 @@ def add_flexible_egs_constraint(n):
     )
 
 
+# Constraint instantaneous emissions/point-in-time emissions
 def add_co2_atmosphere_constraint(n, snapshots):
-    glcs = n.global_constraints[n.global_constraints.type == "co2_atmosphere"]
+    #glcs = n.global_constraints[n.global_constraints.type == "co2_atmosphere"]
+    glcs = n.global_constraints[n.global_constraints.type.str.contains("co2_atmosphere")]
 
     if glcs.empty:
+        logger.info("No 'co2_atmosphere' constraints found in global constraints.")
         return
-    for name, glc in glcs.iterrows():
+    for _, glc in glcs.iterrows():
         carattr = glc.carrier_attribute
         emissions = n.carriers.query(f"{carattr} != 0")[carattr]
 
         if emissions.empty:
             continue
 
-        # stores
-        bus_carrier = n.stores.bus.map(n.buses.carrier)
-        stores = n.stores[bus_carrier.isin(emissions.index) & ~n.stores.e_cyclic]
-        if not stores.empty:
+        country_code = glc.name.split('_')[1]
+        country_store = f"{country_code} co2 atmosphere"
+
+        if country_store in n.stores.index:
             last_i = snapshots[-1]
-            lhs = n.model["Store-e"].loc[last_i, stores.index]
+            lhs = n.model["Store-e"].loc[last_i, country_store]
             rhs = glc.constant
 
-            n.model.add_constraints(lhs <= rhs, name=f"GlobalConstraint-{name}")
+            constraint_name = f"GlobalConstraint-{glc.name}"
+            n.model.add_constraints(lhs <= rhs, name=constraint_name)
+
+            logger.info(f"Selected store for constraint '{constraint_name}': {country_store}")
+            logger.info(f"Added constraint '{constraint_name}' with type '{glc.type}' and constant {rhs}")
+        else:
+            logger.warning(f"Store '{country_store}' not found in n.stores.index.")
 
 
 def extra_functionality(n, snapshots):

@@ -1008,6 +1008,8 @@ rule prepare_sector_network:
     params:
         time_resolution=config_provider("clustering", "temporal", "resolution_sector"),
         co2_budget=config_provider("co2_budget"),
+        co2_type=config_provider("co2_atmosphere"),
+        co2_budget_per_country=config_provider("co2_budget_per_country"),
         conventional_carriers=config_provider(
             "existing_capacities", "conventional_carriers"
         ),
