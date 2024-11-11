@@ -1731,6 +1731,9 @@ def add_co2limit(n, options, nyears=1.0, co2_type=None, co2_budget_per_country=N
         for country, budget in co2_budget_per_country.items():
             constraint_name = f"CO2Limit_{country}_{year}"
             constraint_type = f"co2_atmosphere_{country}"
+
+            adjusted_budget = budget * nyears
+
             n.add(
                 "GlobalConstraint",
                 constraint_name,
@@ -1739,7 +1742,7 @@ def add_co2limit(n, options, nyears=1.0, co2_type=None, co2_budget_per_country=N
                 sense="<=",
                 #type="co2_atmosphere",
                 type=constraint_type,
-                constant=budget,
+                constant=adjusted_budget,
             )
 
             logger.info(f"Added CO2 budget constraint: {constraint_name} with budget {budget}")
@@ -1748,9 +1751,11 @@ def add_co2limit(n, options, nyears=1.0, co2_type=None, co2_budget_per_country=N
 
         logger.info(f"Setting nodal CO2 emissions target to zero for {year}.")
 
-        for node in n.buses.index:
+        for node, budget in co2_budget_per_country.items():
             constraint_name = f"CO2Limit_{node}_{year}"
             constraint_type = f"co2_atmosphere_{node}"
+
+            adjusted_budget = budget * nyears
 
             n.add(
                 constraint_name,
@@ -1758,7 +1763,7 @@ def add_co2limit(n, options, nyears=1.0, co2_type=None, co2_budget_per_country=N
                 carrier_attribute="co2_emissions",
                 sense="<=",
                 type=constraint_type,
-                constant=0.0,
+                constant=adjusted_budget,
             )
 
     else:
@@ -3250,6 +3255,7 @@ def add_biomass(n, costs, co2_type):
             "unsustainable biogas"
         ].sum()
 
+
     if options.get("biomass_spatial", options["biomass_transport"]):
         solid_biomass_potentials_spatial = biomass_potentials["solid biomass"].rename(
             index=lambda x: x + " solid biomass"
@@ -3260,6 +3266,9 @@ def add_biomass(n, costs, co2_type):
         unsustainable_solid_biomass_potentials_spatial = biomass_potentials[
             "unsustainable solid biomass"
         ].rename(index=lambda x: x + " unsustainable solid biomass")
+        unsustainable_liquid_biofuel_potentials_spatial = biomass_potentials[
+            "unsustainable bioliquids"
+        ].rename(index=lambda x: x + " unsustainable bioliquids")
 
     else:
         solid_biomass_potentials_spatial = biomass_potentials["solid biomass"].sum()
@@ -3269,15 +3278,39 @@ def add_biomass(n, costs, co2_type):
         unsustainable_solid_biomass_potentials_spatial = biomass_potentials[
             "unsustainable solid biomass"
         ].sum()
-
-    if options["regional_oil_demand"]:
-        unsustainable_liquid_biofuel_potentials_spatial = biomass_potentials[
-            "unsustainable bioliquids"
-        ].rename(index=lambda x: x + " bioliquids")
-    else:
         unsustainable_liquid_biofuel_potentials_spatial = biomass_potentials[
             "unsustainable bioliquids"
         ].sum()
+
+
+    #if options.get("biomass_spatial", options["biomass_transport"]):
+    #    solid_biomass_potentials_spatial = biomass_potentials["solid biomass"].rename(
+    #        index=lambda x: x + " solid biomass"
+    #    )
+    #    msw_biomass_potentials_spatial = biomass_potentials[
+    #        "municipal solid waste"
+    #    ].rename(index=lambda x: x + " municipal solid waste")
+    #    unsustainable_solid_biomass_potentials_spatial = biomass_potentials[
+    #        "unsustainable solid biomass"
+    #    ].rename(index=lambda x: x + " unsustainable solid biomass")
+
+    #else:
+    #    solid_biomass_potentials_spatial = biomass_potentials["solid biomass"].sum()
+    #    msw_biomass_potentials_spatial = biomass_potentials[
+    #        "municipal solid waste"
+    #    ].sum()
+    #    unsustainable_solid_biomass_potentials_spatial = biomass_potentials[
+    #        "unsustainable solid biomass"
+    #    ].sum()
+
+    #if options["regional_oil_demand"]:
+    #    unsustainable_liquid_biofuel_potentials_spatial = biomass_potentials[
+    #        "unsustainable bioliquids"
+    #    ].rename(index=lambda x: x + " bioliquids")
+    #else:
+    #    unsustainable_liquid_biofuel_potentials_spatial = biomass_potentials[
+    #        "unsustainable bioliquids"
+    #    ].sum()
 
     n.add("Carrier", "biogas")
     n.add("Carrier", "solid biomass")
@@ -5405,10 +5438,12 @@ if __name__ == "__main__":
             co2_type=co2_type
         )
 
+        e_1990_t = {country: emission * 1e9 for country, emission in e_1990.items()}
+
         co2_budget_absolute = {}
         for year, budget_relative_dict in co2_budget_per_country.items():
             co2_budget_absolute[year] = {
-                country: budget_relative_dict[country] * e_1990[country] for country in countries
+                country: budget_relative_dict[country] * e_1990_t[country] for country in countries
             }
 
         add_co2limit(

@@ -323,7 +323,8 @@ def add_power_capacities_installed_before_baseyear(n, grouping_years, costs, bas
                         suffix=name_suffix,
                         bus0=bus0,
                         bus1=new_capacity.index,
-                        bus2="co2 atmosphere",
+                        #bus2="co2 atmosphere",
+                        bus2=spatial.co2.df.loc[new_capacity.index, "atmospheres"].values,
                         carrier=generator,
                         marginal_cost=costs.at[generator, "efficiency"]
                         * costs.at[generator, "VOM"],  # NB: VOM is per MWel
@@ -557,7 +558,8 @@ def add_heating_capacities_installed_before_baseyear(
                 suffix=f" {heat_system} gas boiler-{grouping_year}",
                 bus0="EU gas" if "EU gas" in spatial.gas.nodes else nodes + " gas",
                 bus1=nodes + " " + heat_system.value + " heat",
-                bus2="co2 atmosphere",
+                #bus2="co2 atmosphere",
+                bus2=spatial.co2.df.loc[nodes, "atmospheres"].values,
                 carrier=heat_system.value + " gas boiler",
                 efficiency=efficiency,
                 efficiency2=costs.at["gas", "CO2 intensity"],
@@ -584,7 +586,8 @@ def add_heating_capacities_installed_before_baseyear(
                 suffix=f" {heat_system} oil boiler-{grouping_year}",
                 bus0=spatial.oil.nodes,
                 bus1=nodes + " " + heat_system.value + " heat",
-                bus2="co2 atmosphere",
+                #bus2="co2 atmosphere",
+                bus2=spatial.co2.df.loc[nodes, "atmospheres"].values,
                 carrier=heat_system.value + " oil boiler",
                 efficiency=efficiency,
                 efficiency2=costs.at["oil", "CO2 intensity"],
@@ -660,13 +663,14 @@ if __name__ == "__main__":
     update_config_from_wildcards(snakemake.config, snakemake.wildcards)
 
     options = snakemake.params.sector
+    co2_type = snakemake.params.co2_type
 
     baseyear = snakemake.params.baseyear
 
     n = pypsa.Network(snakemake.input.network)
 
     # define spatial resolution of carriers
-    spatial = define_spatial(n.buses[n.buses.carrier == "AC"].index, options)
+    spatial = define_spatial(n.buses[n.buses.carrier == "AC"].index, options, co2_type)
     add_build_year_to_new_assets(n, baseyear)
 
     Nyears = n.snapshot_weightings.generators.sum() / 8760.0
