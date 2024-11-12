@@ -356,6 +356,60 @@ def add_max_growth(n):
     return n
 
 
+def add_max_growth_myopic(n, current_year):
+    """
+    Adds renewable energy capacity constraints for a myopic foresight model for each investment period.
+    """
+
+    opts = snakemake.params["sector"]["limit_max_growth"]
+
+    factor = opts.get("factor", 1)
+
+    for carrier, max_growth in opts["max_growth"].items():
+        max_total_capacity = max_growth * factor * 1000
+        max_relative_growth_factor = opts["max_relative_growth"].get(carrier, 1)
+
+        carrier_gens = n.generators[n.generators["carrier"] == carrier].index
+
+        cumulative_capacity = 0
+        for gen in carrier_gens:
+            match = re.search(r'-\d{4}$', gen)
+            if match:
+                gen_year = int(match.group(0)[1:])
+
+                if gen_year < current_year:
+                    p_nom = n.generators.at[gen, "p_nom"]
+                    cumulative_capacity += p_nom
+
+        max_relative_capacity = cumulative_capacity * max_relative_growth_factor
+        final_capacity_limit = min(max_total_capacity, max_relative_capacity)
+
+        if cumulative_capacity == 0:
+            final_capacity_limit = max_total_capacity
+
+        remaining_capacity = max(0, final_capacity_limit - cumulative_capacity)
+
+        #logger.info(f"The final capacity limit for the generation type '{carrier}' in the year {current_year} is {final_capacity_limit} MW.")
+        #logger.info(f"The remaining capacity for the generation type '{carrier}' in the year {current_year} is {remaining_capacity} MW.")
+
+        num_generators = len(carrier_gens[carrier_gens.str.endswith(f'-{current_year}')])
+        per_generator_capacity = remaining_capacity / num_generators if num_generators > 0 else 0
+
+        #logger.info(
+        #    f"In the year {current_year}, for generation type '{carrier}': the remaining capacity of {remaining_capacity} MW will be evenly distributed among {num_generators} generators.")
+
+        for gen in carrier_gens:
+            match = re.search(r'-\d{4}$', gen)
+            if match and int(match.group(0)[1:]) == current_year:
+                #TODO: we need have a smart way to distribute the remaining capacity
+                n.generators.at[gen, "p_nom_min"] = 0
+                n.generators.at[gen, "p_nom_max"] = per_generator_capacity
+
+                logger.info(f"为发电机 '{gen}' 设置 p_nom_max 为 {per_generator_capacity} MW")
+
+    return n
+
+
 def add_retrofit_gas_boiler_constraint(n, snapshots):
     """
     Allow retrofitting of existing gas boilers to H2 boilers.
@@ -476,6 +530,8 @@ def prepare_network(
 
     if foresight == "myopic":
         add_land_use_constraint(n)
+        if snakemake.params["sector"]["limit_max_growth"]["enable"]:
+            n = add_max_growth_myopic(n, planning_horizons)
 
     if foresight == "perfect":
         n = add_land_use_constraint_perfect(n)
@@ -1119,12 +1175,14 @@ if __name__ == "__main__":
 
     n = pypsa.Network(snakemake.input.network)
 
+    current_year = int(snakemake.wildcards.planning_horizons)
+
     n = prepare_network(
         n,
         solve_opts,
         config=snakemake.config,
         foresight=snakemake.params.foresight,
-        planning_horizons=snakemake.params.planning_horizons,
+        planning_horizons=current_year,
         co2_sequestration_potential=snakemake.params["co2_sequestration_potential"],
     )
 
