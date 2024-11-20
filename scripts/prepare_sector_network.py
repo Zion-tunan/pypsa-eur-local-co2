@@ -4223,6 +4223,18 @@ def remove_h2_network(n):
     if "EU H2 Store" in n.stores.index:
         n.stores.drop("EU H2 Store", inplace=True)
 
+def remove_h2_storage(n):
+    logger.info("Function remove_h2_storage is called.")
+
+    indices_to_remove = n.stores.index[
+        n.stores.index.str.contains("H2 Store") & (n.stores.index != "EU additional H2 Store")
+        ]
+
+    if not indices_to_remove.empty:
+        logger.info(f"Removing the following H2 storage indices: {list(indices_to_remove)}")
+        n.stores.drop(indices_to_remove, inplace=True)
+    else:
+        logger.info("No H2 storage indices to remove.")
 
 def limit_individual_line_extension(n, maxext):
     logger.info(f"Limiting new HVAC and HVDC extensions to {maxext} MW")
@@ -4737,6 +4749,9 @@ if __name__ == "__main__":
 
     if not options["H2_network"]:
         remove_h2_network(n)
+
+    if not options["hydrogen_storage"]:
+        remove_h2_storage(n)
 
     if options["co2network"]:
         add_co2_network(n, costs)
