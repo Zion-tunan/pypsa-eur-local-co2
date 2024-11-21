@@ -1745,7 +1745,7 @@ def add_co2limit(n, options, nyears=1.0, co2_type=None, co2_budget_per_country=N
                 constant=adjusted_budget,
             )
 
-            logger.info(f"Added CO2 budget constraint: {constraint_name} with budget {budget}")
+            #logger.info(f"Added CO2 budget constraint: {constraint_name} with budget {budget}")
 
     elif co2_type == "nodal":
 
@@ -5439,6 +5439,13 @@ if __name__ == "__main__":
         )
 
         e_1990_t = {country: emission * 1e9 for country, emission in e_1990.items()}
+
+        e_1990_t["BA"] = 34040000
+        e_1990_t["ME"] = 5900000
+        e_1990_t["XK"] = 9500000
+
+        #for country, emission in e_1990_t.items():
+        #    logger.info(f"{country}: {emission:.2f} Mt")
 
         co2_budget_absolute = {}
         for year, budget_relative_dict in co2_budget_per_country.items():
