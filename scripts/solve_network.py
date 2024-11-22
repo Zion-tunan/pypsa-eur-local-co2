@@ -355,15 +355,26 @@ def add_max_growth(n):
 
     return n
 
-
 def add_max_growth_myopic(n, current_year):
     """
     Adds renewable energy capacity constraints for a myopic foresight model for each investment period.
+    Assumes the first investment period is 2025.
     """
-
+    #TODO: Just for simple running, the best and easy way is to set p_nom_max as variable and add one global constraint here, and we should convey parameter (not defined here)
     opts = snakemake.params["sector"]["limit_max_growth"]
-
     factor = opts.get("factor", 1)
+
+    start_year = 2025
+
+    wind_resource_countries = {
+        "DK", "NL", "GB", "DE", "FR", "SE", "FI", "PL",
+        "BE", "CZ", "IE", "NO", "LT", "LV", "EE"
+    }
+
+    solar_resource_countries = {
+        country for country in n.generators.index.str[:2].unique()
+        if country not in wind_resource_countries
+    }
 
     for carrier, max_growth in opts["max_growth"].items():
         max_total_capacity = max_growth * factor * 1000
@@ -372,42 +383,170 @@ def add_max_growth_myopic(n, current_year):
         carrier_gens = n.generators[n.generators["carrier"] == carrier].index
 
         cumulative_capacity = 0
+        historical_capacity_by_node = {}
+
         for gen in carrier_gens:
             match = re.search(r'-\d{4}$', gen)
             if match:
                 gen_year = int(match.group(0)[1:])
-
                 if gen_year < current_year:
-                    p_nom = n.generators.at[gen, "p_nom"]
+                    p_nom = n.generators.at[gen, "p_nom_opt"]
                     cumulative_capacity += p_nom
+
+                    node = " ".join(gen.split()[:2])
+                    historical_capacity_by_node[node] = (
+                        historical_capacity_by_node.get(node, 0) + p_nom
+                    )
 
         max_relative_capacity = cumulative_capacity * max_relative_growth_factor
         final_capacity_limit = min(max_total_capacity, max_relative_capacity)
-
         if cumulative_capacity == 0:
             final_capacity_limit = max_total_capacity
 
         remaining_capacity = max(0, final_capacity_limit - cumulative_capacity)
 
-        #logger.info(f"The final capacity limit for the generation type '{carrier}' in the year {current_year} is {final_capacity_limit} MW.")
+        if "wind" in carrier:
+            target_countries = wind_resource_countries
+        elif "solar" in carrier:
+            target_countries = solar_resource_countries
+        else:
+            continue
+
+        target_historical_capacity_by_node = {
+            node: capacity
+            for node, capacity in historical_capacity_by_node.items()
+            if node[:2] in target_countries
+        }
+
+        total_target_historical_capacity = sum(target_historical_capacity_by_node.values())
+
+        if total_target_historical_capacity > 0:
+            target_historical_share = {
+                node: capacity / total_target_historical_capacity
+                for node, capacity in target_historical_capacity_by_node.items()
+            }
+        else:
+            target_historical_share = {}
+
+        current_year_gens = carrier_gens[carrier_gens.str.endswith(f'-{current_year}')]
+        current_gens_by_node = {
+            " ".join(gen.split()[:2]): gen for gen in current_year_gens
+        }
+
+        if current_year == start_year:
+
+            equal_share = remaining_capacity / len(target_countries)
+            for node, gen in current_gens_by_node.items():
+                if node[:2] in target_countries:
+                    n.generators.at[gen, "p_nom_max"] = equal_share
+                    n.generators.at[gen, "p_nom_min"] = 0
+                    logger.info(
+                        f"First step: Set p_nom_max for generator '{gen}' in '{node}' to {equal_share:.2f} MW."
+                    )
+
+        else:
+            allocated_capacity = {}
+            unallocated_generators = []
+
+            resource_allocation = remaining_capacity * 95 / 100
+            other_allocation = remaining_capacity * 5 / 100
+
+            for node, gen in current_gens_by_node.items():
+                if node[:2] in target_countries and node in target_historical_share:
+                    allocated_capacity[gen] = target_historical_share[node] * resource_allocation
+                else:
+                    unallocated_generators.append(gen)
+
+            if unallocated_generators:
+                equal_share = other_allocation / len(unallocated_generators)
+                for gen in unallocated_generators:
+                    allocated_capacity[gen] = equal_share
+
+            for gen, capacity in allocated_capacity.items():
+                n.generators.at[gen, "p_nom_max"] = capacity
+                n.generators.at[gen, "p_nom_min"] = 0
+                logger.info(
+                    f"Set p_nom_max for generator '{gen}' to {capacity:.2f} MW (carrier: {carrier})."
+                )
+
+    return n
+
+
+
+
+#def add_max_growth_myopic(n, current_year):
+#    """
+#    Adds renewable energy capacity constraints for a myopic foresight model for each investment period.
+#    """
+
+#    opts = snakemake.params["sector"]["limit_max_growth"]
+
+#    factor = opts.get("factor", 1)
+
+#    for carrier, max_growth in opts["max_growth"].items():
+#        max_total_capacity = max_growth * factor * 1000
+#        max_relative_growth_factor = opts["max_relative_growth"].get(carrier, 1)
+
+#        carrier_gens = n.generators[n.generators["carrier"] == carrier].index
+
+#        cumulative_capacity = 0
+#        for gen in carrier_gens:
+#            match = re.search(r'-\d{4}$', gen)
+#            if match:
+#                gen_year = int(match.group(0)[1:])
+
+#                if gen_year < current_year:
+#                    p_nom = n.generators.at[gen, "p_nom"]
+#                    cumulative_capacity += p_nom
+
+#        max_relative_capacity = cumulative_capacity * max_relative_growth_factor
+#        final_capacity_limit = min(max_total_capacity, max_relative_capacity)
+
+#        if cumulative_capacity == 0:
+#            final_capacity_limit = max_total_capacity
+
+#        remaining_capacity = max(0, final_capacity_limit - cumulative_capacity)
+
+        # 找到当前年份的所有发电机
+#        current_year_gens = carrier_gens[carrier_gens.str.endswith(f'-{current_year}')]
+
+        # 如果当前年份有发电机，添加约束
+#        if not current_year_gens.empty:
+#            def extra_functionality(n, snapshots):
+                # 定义约束表达式
+#                lhs = sum(n.model["Generator-p_nom_max"][gen] for gen in current_year_gens)
+#                rhs = remaining_capacity
+
+                # 添加约束到模型
+#                constraint_name = f"GlobalConstraint-{carrier}-{current_year}"
+#                n.model.add_constraints(lhs <= rhs, name=constraint_name)
+
+#                logger.info(
+#                    f"Added global capacity constraint for carrier '{carrier}' in year {current_year} "
+#                    f"with limit {remaining_capacity:.2f} MW"
+#                )
+
+            # 在优化时注入约束
+#            n.optimize(extra_functionality=extra_functionality)
+
+    #logger.info(f"The final capacity limit for the generation type '{carrier}' in the year {current_year} is {final_capacity_limit} MW.")
         #logger.info(f"The remaining capacity for the generation type '{carrier}' in the year {current_year} is {remaining_capacity} MW.")
 
-        num_generators = len(carrier_gens[carrier_gens.str.endswith(f'-{current_year}')])
-        per_generator_capacity = remaining_capacity / num_generators if num_generators > 0 else 0
+        #num_generators = len(carrier_gens[carrier_gens.str.endswith(f'-{current_year}')])
+        #per_generator_capacity = remaining_capacity / num_generators if num_generators > 0 else 0
 
         #logger.info(
         #    f"In the year {current_year}, for generation type '{carrier}': the remaining capacity of {remaining_capacity} MW will be evenly distributed among {num_generators} generators.")
 
-        for gen in carrier_gens:
-            match = re.search(r'-\d{4}$', gen)
-            if match and int(match.group(0)[1:]) == current_year:
-                #TODO: we need have a smart way to distribute the remaining capacity
-                n.generators.at[gen, "p_nom_min"] = 0
-                n.generators.at[gen, "p_nom_max"] = per_generator_capacity
+        #for gen in carrier_gens:
+        #    match = re.search(r'-\d{4}$', gen)
+        #    if match and int(match.group(0)[1:]) == current_year:
+        #        n.generators.at[gen, "p_nom_min"] = 0
+        #        n.generators.at[gen, "p_nom_max"] = per_generator_capacity
 
-                logger.info(f"为发电机 '{gen}' 设置 p_nom_max 为 {per_generator_capacity} MW")
+        #        logger.info(f"为发电机 '{gen}' 设置 p_nom_max 为 {per_generator_capacity} MW")
 
-    return n
+#    return n
 
 
 def add_retrofit_gas_boiler_constraint(n, snapshots):
