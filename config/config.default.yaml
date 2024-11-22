@@ -111,6 +111,42 @@ electricity:
   Additional_h2_demand:
     Type: constant # Zero, constant or variable
     Value: 0 # TWh/year, only work under the type equals to constant
+    Region_Value: # TWh/year
+      'AL': 0
+      'AT': 0
+      'BA': 0
+      'BE': 0
+      'BG': 0
+      'CH': 0
+      'CZ': 100
+      'DE': 100
+      'DK': 100
+      'EE': 0
+      'ES': 100
+      'FI': 100
+      'FR': 100
+      'GB': 100
+      'GR': 100
+      'HR': 0
+      'HU': 0
+      'IE': 100
+      'IT': 100
+      'LT': 0
+      'LU': 0
+      'LV': 0
+      'ME': 0
+      'MK': 0
+      'NL': 100
+      'NO': 0
+      'PL': 0
+      'PT': 0
+      'RO': 0
+      'RS': 0
+      'SE': 0
+      'SI': 0
+      'SK': 0
+      'XK': 0
+
 
   powerplants_filter: (DateOut >= 2023 or DateOut != DateOut) and not (Country == 'Germany' and Fueltype == 'Nuclear')
   custom_powerplants: false
@@ -687,7 +723,7 @@ sector:
       efficiency_static: 0.97
   H2_network: true
   gas_network: false
-  H2_retrofit: false
+  H2_retrofit: true
   H2_retrofit_capacity_per_CH4: 0.6
   gas_network_connectivity_upgrade: 1
   gas_distribution_grid: true
@@ -705,7 +741,7 @@ sector:
   bioH2: false
   municipal_solid_waste: false
   limit_max_growth:
-    enable: true
+    enable: false
     # allowing 30% larger than max historic growth
     factor: 1.2
     max_growth:  # unit GW

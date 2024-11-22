@@ -1398,6 +1398,8 @@ def add_storage_and_grids(n, costs):
 
     additional_h2_demand_value = snakemake.params.additional_h2_demand_value
 
+    additional_h2_demand_region_value = snakemake.params.additional_h2_demand_region_value
+
     additional_h2_demand_df = pd.read_csv(snakemake.input.additional_h2_demand, sep=";")
     additional_h2_demand_df["Variable H2 demand 01"] = (
         additional_h2_demand_df["Variable H2 demand 01"]
@@ -1405,6 +1407,77 @@ def add_storage_and_grids(n, costs):
         .astype(float)
     )
 
+    # Add additional regional h2 demand
+    if additional_h2_demand_type == "zero":
+        for node in spatial.nodes:
+            p_set = [0] * 8760
+            n.add(
+                "Load",
+                name=f"{node} additional h2 load",
+                bus=f"{node} H2",
+                carrier="Additional_H2",
+                p_set=p_set,
+            )
+        logger.info("All nodes set to zero additional hydrogen demand.")
+
+    elif additional_h2_demand_type == "constant":
+        country_loads = additional_h2_demand_region_value
+        country_to_nodes = {node[:2]: [] for node in spatial.nodes}
+
+        for node in spatial.nodes:
+            country = node[:2]
+            country_to_nodes[country].append(node)
+
+        for country, nodes in country_to_nodes.items():
+            if country in country_loads:
+                total_load = country_loads[country] * 1e6 / 8760
+                load_per_node = total_load / len(nodes)
+                for node in nodes:
+                    p_set = [load_per_node] * 8760
+                    n.add(
+                        "Load",
+                        name=f"{node} additional h2 load",
+                        bus=f"{node} H2",
+                        carrier="Additional_H2",
+                        p_set=p_set,
+                    )
+
+                logger.info(
+                    f"Distributed {country_loads[country]} TWh/year for country {country} "
+                    f"across {len(nodes)} nodes."
+                )
+
+    elif additional_h2_demand_type == "variable":
+
+        country_to_nodes = {node[:2]: [] for node in spatial.nodes}
+
+        for node in spatial.nodes:
+            country = node[:2]
+            country_to_nodes[country].append(node)
+
+        for country, nodes in country_to_nodes.items():
+            column_name = f"{country} variable h2 demand"
+            if column_name in additional_h2_demand_df.columns:
+                load_series = additional_h2_demand_df[column_name].values
+                load_per_node = load_series / len(nodes)
+                for node in nodes:
+                    p_set = load_per_node
+                    n.add(
+                        "Load",
+                        name=f"{node} additional h2 load",
+                        bus=f"{node} H2",
+                        carrier="Additional_H2",
+                        p_set=p_set,
+                    )
+
+                logger.info(
+                    f"Distributed variable H2 demand for country {country} "
+                    f"across {len(nodes)} nodes."
+                )
+    else:
+        raise ValueError(f"Unknown additional_h2_demand_type: {additional_h2_demand_type}")
+
+    # Add EU additional h2 demand
     if additional_h2_demand_type == "zero":
         p_set = [0] * 8760
     elif additional_h2_demand_type == "constant":
