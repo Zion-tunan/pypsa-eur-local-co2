@@ -1374,6 +1374,8 @@ def add_storage_and_grids(n, costs):
     n.add("Bus", spatial.additionalh2.stores[0], location=spatial.additionalh2.locations[0], carrier="Additional_H2",
           unit="MWh_LHV")
 
+    n.add("Bus", nodes + " Additional H2 Store", location=nodes, carrier="Additional_H2", unit="MWh_LHV")
+
     # add link between hydrogen bus and additional hydrogen demand bus
     for node in spatial.nodes:
         n.add(
@@ -1399,6 +1401,12 @@ def add_storage_and_grids(n, costs):
     additional_h2_demand_value = snakemake.params.additional_h2_demand_value
 
     additional_h2_demand_region_value = snakemake.params.additional_h2_demand_region_value
+
+    max_hours = snakemake.params.max_hours
+
+    max_hours_value = max_hours["Additional_H2"]
+
+    additional_h2_storage = snakemake.params.additional_h2_storage
 
     additional_h2_demand_df = pd.read_csv(snakemake.input.additional_h2_demand, sep=";")
     additional_h2_demand_df["Variable H2 demand 01"] = (
@@ -1442,6 +1450,42 @@ def add_storage_and_grids(n, costs):
                         p_set=p_set,
                     )
 
+                    if "Additional_H2" in additional_h2_storage:
+                        e_nom = (max_hours_value / 8760) * load_per_node
+                        n.add(
+                            "Store",
+                            name=f"{node} Additional H2 Store",
+                            bus=f"{node} Additional H2 Store",
+                            carrier="Additional_H2",
+                            #e_nom_extendable=True,
+                            e_nom=e_nom,
+                            e_cyclic=True,
+                            capital_cost=0,
+                            marginal_cost=0,
+                        )
+                        n.add(
+                            "Link",
+                            name=f"{node} Additional H2 Charging",
+                            bus0=f"{node} H2",
+                            bus1=f"{node} Additional H2 Store",
+                            carrier="Additional_H2",
+                            p_nom_extendable=True,
+                            efficiency=1,
+                            capital_cost=0,
+                            marginal_cost=0,
+                        )
+                        n.add(
+                            "Link",
+                            name=f"{node} Additional H2 Discharging",
+                            bus0=f"{node} Additional H2 Store",
+                            bus1=f"{node} H2",
+                            carrier="Additional_H2",
+                            p_nom_extendable=True,
+                            efficiency=1,
+                            capital_cost=0,
+                            marginal_cost=0,
+                        )
+
                 logger.info(
                     f"Distributed {country_loads[country]} TWh/year for country {country} "
                     f"across {len(nodes)} nodes."
@@ -1469,6 +1513,42 @@ def add_storage_and_grids(n, costs):
                         carrier="Additional_H2",
                         p_set=p_set,
                     )
+
+                    if "Additional_H2" in additional_h2_storage:
+                        e_nom = (max_hours_value / 8760) * load_per_node.sum()
+                        n.add(
+                            "Store",
+                            name=f"{node} Additional H2 Store",
+                            bus=f"{node} Additional H2 Store",
+                            carrier="Additional_H2",
+                            #e_nom_extendable=True,
+                            e_nom=e_nom,
+                            e_cyclic=True,
+                            capital_cost=0,
+                            marginal_cost=0,
+                        )
+                        n.add(
+                            "Link",
+                            name=f"{node} Additional H2 Charging",
+                            bus0=f"{node} H2",
+                            bus1=f"{node} Additional H2 Store",
+                            carrier="Additional_H2",
+                            p_nom_extendable=True,
+                            efficiency=1,
+                            capital_cost=0,
+                            marginal_cost=0,
+                        )
+                        n.add(
+                            "Link",
+                            name=f"{node} Additional H2 Discharging",
+                            bus0=f"{node} Additional H2 Store",
+                            bus1=f"{node} H2",
+                            carrier="Additional_H2",
+                            p_nom_extendable=True,
+                            efficiency=1,
+                            capital_cost=0,
+                            marginal_cost=0,
+                        )
 
                 logger.info(
                     f"Distributed variable H2 demand for country {country} "
@@ -1504,11 +1584,11 @@ def add_storage_and_grids(n, costs):
 
     # Add additional H2 storage
 
-    additional_h2_storage = snakemake.params.additional_h2_storage
-    max_hours = snakemake.params.max_hours
+
+    #max_hours = snakemake.params.max_hours
 
     if "Additional_H2" in additional_h2_storage:
-        max_hours_value = max_hours["Additional_H2"]
+        #max_hours_value = max_hours["Additional_H2"]
         e_nom = (max_hours_value / 8760) * (additional_h2_demand_value * 1000000)
 
         logger.info(f"max_hours['Additional_H2']: {max_hours_value}")
@@ -1519,7 +1599,7 @@ def add_storage_and_grids(n, costs):
             spatial.additionalh2.stores,
             bus=spatial.additionalh2.stores[0],
             carrier="Additional_H2",
-            e_nom_extendable=True,
+            #e_nom_extendable=True,
             e_nom=e_nom,
             e_cyclic=True,
             # capital_cost=costs.at["hydrogen storage underground", "capital_cost"],
@@ -1558,6 +1638,7 @@ def add_storage_and_grids(n, costs):
             marginal_cost=0,
         )
 
+    nodes = pop_layout.index
 
     n.add(
         "Link",
@@ -4300,8 +4381,10 @@ def remove_h2_storage(n):
     logger.info("Function remove_h2_storage is called.")
 
     indices_to_remove = n.stores.index[
-        n.stores.index.str.contains("H2 Store") & (n.stores.index != "EU additional H2 Store")
-        ]
+        n.stores.index.str.contains("H2 Store")
+        & ~n.stores.index.str.contains("Additional H2 Store")
+        & (n.stores.index != "EU additional H2 Store")
+    ]
 
     if not indices_to_remove.empty:
         logger.info(f"Removing the following H2 storage indices: {list(indices_to_remove)}")
