@@ -1365,37 +1365,6 @@ def add_storage_and_grids(n, costs):
 
     n.add("Bus", nodes + " H2", location=nodes, carrier="H2", unit="MWh_LHV")
 
-    n.add("Carrier", "Additional_H2")
-
-    n.add("Carrier", "Additional_H2_transport")
-
-    n.add("Bus", spatial.additionalh2.nodes[0], location=spatial.additionalh2.locations[0], carrier="Additional_H2", unit="MWh_LHV")
-
-    n.add("Bus", spatial.additionalh2.stores[0], location=spatial.additionalh2.locations[0], carrier="Additional_H2",
-          unit="MWh_LHV")
-
-    n.add("Bus", nodes + " Additional H2 Store", location=nodes, carrier="Additional_H2", unit="MWh_LHV")
-
-    # add link between hydrogen bus and additional hydrogen demand bus
-    for node in spatial.nodes:
-        n.add(
-            "Link",
-            name=f"{node} to EU additional H2",
-            bus0=f"{node} H2",
-            bus1=spatial.additionalh2.nodes[0],
-            p_nom_extendable=True,
-            carrier="Additional_H2_transport",
-            efficiency=1,
-            # capital_cost=costs.at["h2 pipeline", "fixed"],
-            capital_cost=0,
-            # lifetime=costs.at["h2 pipeline", "lifetime"],
-            lifetime=100,
-            p_max_pu=1,
-            p_min_pu=0,
-        )
-
-    # Add additional hydrogen demand
-
     additional_h2_demand_type = snakemake.params.additional_h2_demand_type
 
     additional_h2_demand_value = snakemake.params.additional_h2_demand_value
@@ -1415,228 +1384,295 @@ def add_storage_and_grids(n, costs):
         .astype(float)
     )
 
-    # Add additional regional h2 demand
-    if additional_h2_demand_type == "zero":
+    # Deal with EU additional H2 demand and avoid useless adding
+    if additional_h2_demand_value != 0:
+        logger.info("Adding components related to Additional H2.")
+
+        # Add EU carrier
+        n.add("Carrier", "Additional_H2")
+        n.add("Carrier", "Additional_H2_transport")
+
+        # Add EU additional h2 bus
+        n.add(
+            "Bus",
+            spatial.additionalh2.nodes[0],
+            location=spatial.additionalh2.locations[0],
+            carrier="Additional_H2",
+            unit="MWh_LHV",
+        )
+
+        # Add EU additional h2 storage bus
+        n.add(
+            "Bus",
+            spatial.additionalh2.stores[0],
+            location=spatial.additionalh2.locations[0],
+            carrier="Additional_H2",
+            unit="MWh_LHV",
+        )
+
+        # Add link between hydrogen bus and EU additional hydrogen demand bus
         for node in spatial.nodes:
-            p_set = [0] * 8760
             n.add(
-                "Load",
-                name=f"{node} additional h2 load",
-                bus=f"{node} H2",
-                carrier="Additional_H2",
-                p_set=p_set,
+                "Link",
+                name=f"{node} to EU additional H2",
+                bus0=f"{node} H2",
+                bus1=spatial.additionalh2.nodes[0],
+                p_nom_extendable=True,
+                carrier="Additional_H2_transport",
+                efficiency=1,
+                capital_cost=0,
+                lifetime=100,
+                p_max_pu=1,
+                p_min_pu=0,
             )
-        logger.info("All nodes set to zero additional hydrogen demand.")
 
-    elif additional_h2_demand_type == "constant":
-        country_loads = additional_h2_demand_region_value
-        country_to_nodes = {node[:2]: [] for node in spatial.nodes}
+        # Add EU additional H2 demand
+        if additional_h2_demand_type == "zero":
+            p_set = [0] * 8760
+        elif additional_h2_demand_type == "constant":
+            p_set = [additional_h2_demand_value * 1000000 / 8760] * 8760
+        elif additional_h2_demand_type == "variable":
+            p_set = pd.to_numeric(
+                additional_h2_demand_df["Variable H2 demand 01"],
+                errors="coerce",
+            ).values
+            logger.info(f"Sum of p_set (in TWh): {p_set.sum() / 1000000} MW")
+        else:
+            raise ValueError(f"Unknown additional_h2_demand_type: {additional_h2_demand_type}")
 
-        for node in spatial.nodes:
-            country = node[:2]
-            country_to_nodes[country].append(node)
+        n.add(
+            "Load",
+            name=spatial.additionalh2.nodes[0] + " load",
+            bus=spatial.additionalh2.nodes[0],
+            carrier="Additional_H2",
+            p_set=p_set,
+        )
 
-        for country, nodes in country_to_nodes.items():
-            if country in country_loads:
-                total_load = country_loads[country] * 1e6 / 8760
-                load_per_node = total_load / len(nodes)
-                for node in nodes:
-                    p_set = [load_per_node] * 8760
-                    n.add(
-                        "Load",
-                        name=f"{node} additional h2 load",
-                        bus=f"{node} H2",
-                        carrier="Additional_H2",
-                        p_set=p_set,
+        logger.info(
+            f"Additional hydrogen demand of {additional_h2_demand_value} TWh/year added across the EU."
+        )
+
+        # Add EU Additional H2 storage
+        if "Additional_H2" in additional_h2_storage:
+            e_nom = (max_hours_value / 8760) * (additional_h2_demand_value * 1000000)
+
+            logger.info(f"max_hours['Additional_H2']: {max_hours_value}")
+            logger.info(f"e_nom (calculated): {e_nom}")
+
+            n.add(
+                "Store",
+                spatial.additionalh2.stores,
+                bus=spatial.additionalh2.stores[0],
+                carrier="Additional_H2",
+                e_nom=e_nom,
+                e_cyclic=True,
+                capital_cost=0,
+                marginal_cost=0,
+            )
+
+            n.add(
+                "Link",
+                spatial.additionalh2.stores[0] + " Charging",
+                bus0=spatial.additionalh2.nodes[0],
+                bus1=spatial.additionalh2.stores[0],
+                carrier="Additional_H2",
+                p_nom_extendable=True,
+                efficiency=1,
+                capital_cost=0,
+                marginal_cost=0,
+            )
+
+            n.add(
+                "Link",
+                spatial.additionalh2.stores[0] + " Discharging",
+                bus0=spatial.additionalh2.stores[0],
+                bus1=spatial.additionalh2.nodes[0],
+                carrier="Additional_H2",
+                p_nom_extendable=True,
+                efficiency=1,
+                capital_cost=0,
+                marginal_cost=0,
+            )
+
+    else:
+        logger.info("Additional H2 demand value is 0, skipping EU Additional H2 related components.")
+
+
+    # Add regional additional h2 demand
+    if sum(additional_h2_demand_region_value.values()) == 0:
+        logger.info("Regional Additional H2 demand value is 0, skipping related regional components.")
+    else:
+        logger.info("Adding regional Additional H2 components.")
+
+        # Add Additional H2 carrier
+        n.add("Carrier", "Additional_H2")
+        #n.add("Carrier", "Additional_H2_transport")
+
+        nodes = pop_layout.index
+
+        countries_with_additional_h2 = [
+            country for country, value in additional_h2_demand_region_value.items() if value > 0
+        ]
+
+        logger.info(f"Countries with additional H2 demand: {countries_with_additional_h2}")
+
+        nodes_to_add_store = [
+            node for node in nodes if node[:2] in countries_with_additional_h2
+        ]
+
+        if "Additional_H2" in additional_h2_storage:
+
+            n.add(
+                "Bus",
+                nodes_to_add_store + " Additional H2 Store",
+                location=nodes_to_add_store,
+                carrier="Additional_H2",
+                unit="MWh_LHV",
+            )
+
+            logger.info(f"Added Additional H2 store buses for {len(nodes_to_add_store)} nodes.")
+        else:
+            logger.info("Skipping Additional H2 store bus addition as 'Additional_H2' is not in storage options.")
+
+        # Add additional regional H2 loads and storage
+        if additional_h2_demand_type == "zero":
+            for node in nodes_to_add_store:
+                p_set = [0] * 8760
+                n.add(
+                    "Load",
+                    name=f"{node} additional h2 load",
+                    bus=f"{node} H2",
+                    carrier="Additional_H2",
+                    p_set=p_set,
+                )
+            logger.info("All nodes set to zero additional hydrogen demand.")
+
+        elif additional_h2_demand_type == "constant":
+            country_loads = additional_h2_demand_region_value
+            country_to_nodes = {node[:2]: [] for node in nodes_to_add_store}
+
+            for node in nodes_to_add_store:
+                country = node[:2]
+                country_to_nodes[country].append(node)
+
+            for country, nodes in country_to_nodes.items():
+                if country in country_loads and country_loads[country] > 0:
+                    total_load = country_loads[country] * 1e6 / 8760
+                    load_per_node = total_load / len(nodes)
+                    for node in nodes:
+                        p_set = [load_per_node] * 8760
+                        n.add(
+                            "Load",
+                            name=f"{node} additional h2 load",
+                            bus=f"{node} H2",
+                            carrier="Additional_H2",
+                            p_set=p_set,
+                        )
+
+                        if "Additional_H2" in additional_h2_storage:
+                            e_nom = max_hours_value * load_per_node
+                            n.add(
+                                "Store",
+                                name=f"{node} Additional H2 Store",
+                                bus=f"{node} Additional H2 Store",
+                                carrier="Additional_H2",
+                                e_nom=e_nom,
+                                e_cyclic=True,
+                                capital_cost=0,
+                                marginal_cost=0,
+                            )
+                            n.add(
+                                "Link",
+                                name=f"{node} Additional H2 Charging",
+                                bus0=f"{node} H2",
+                                bus1=f"{node} Additional H2 Store",
+                                carrier="Additional_H2",
+                                p_nom_extendable=True,
+                                efficiency=1,
+                                capital_cost=0,
+                                marginal_cost=0,
+                            )
+                            n.add(
+                                "Link",
+                                name=f"{node} Additional H2 Discharging",
+                                bus0=f"{node} Additional H2 Store",
+                                bus1=f"{node} H2",
+                                carrier="Additional_H2",
+                                p_nom_extendable=True,
+                                efficiency=1,
+                                capital_cost=0,
+                                marginal_cost=0,
+                            )
+
+                    logger.info(
+                        f"Distributed {country_loads[country]} TWh/year for country {country} "
+                        f"across {len(nodes)} nodes."
                     )
 
-                    if "Additional_H2" in additional_h2_storage:
-                        e_nom = (max_hours_value / 8760) * load_per_node
+        elif additional_h2_demand_type == "variable":
+            country_to_nodes = {node[:2]: [] for node in nodes_to_add_store}
+
+            for node in nodes_to_add_store:
+                country = node[:2]
+                country_to_nodes[country].append(node)
+
+            for country, nodes in country_to_nodes.items():
+                column_name = f"{country} variable h2 demand"
+                if column_name in additional_h2_demand_df.columns:
+                    load_series = additional_h2_demand_df[column_name].values
+                    load_per_node = load_series / len(nodes)
+                    for node in nodes:
+                        p_set = load_per_node
                         n.add(
-                            "Store",
-                            name=f"{node} Additional H2 Store",
-                            bus=f"{node} Additional H2 Store",
+                            "Load",
+                            name=f"{node} additional h2 load",
+                            bus=f"{node} H2",
                             carrier="Additional_H2",
-                            #e_nom_extendable=True,
-                            e_nom=e_nom,
-                            e_cyclic=True,
-                            capital_cost=0,
-                            marginal_cost=0,
-                        )
-                        n.add(
-                            "Link",
-                            name=f"{node} Additional H2 Charging",
-                            bus0=f"{node} H2",
-                            bus1=f"{node} Additional H2 Store",
-                            carrier="Additional_H2",
-                            p_nom_extendable=True,
-                            efficiency=1,
-                            capital_cost=0,
-                            marginal_cost=0,
-                        )
-                        n.add(
-                            "Link",
-                            name=f"{node} Additional H2 Discharging",
-                            bus0=f"{node} Additional H2 Store",
-                            bus1=f"{node} H2",
-                            carrier="Additional_H2",
-                            p_nom_extendable=True,
-                            efficiency=1,
-                            capital_cost=0,
-                            marginal_cost=0,
+                            p_set=p_set,
                         )
 
-                logger.info(
-                    f"Distributed {country_loads[country]} TWh/year for country {country} "
-                    f"across {len(nodes)} nodes."
-                )
+                        if "Additional_H2" in additional_h2_storage:
+                            e_nom = (max_hours_value / 8760) * load_per_node.sum()
+                            n.add(
+                                "Store",
+                                name=f"{node} Additional H2 Store",
+                                bus=f"{node} Additional H2 Store",
+                                carrier="Additional_H2",
+                                e_nom=e_nom,
+                                e_cyclic=True,
+                                capital_cost=0,
+                                marginal_cost=0,
+                            )
+                            n.add(
+                                "Link",
+                                name=f"{node} Additional H2 Charging",
+                                bus0=f"{node} H2",
+                                bus1=f"{node} Additional H2 Store",
+                                carrier="Additional_H2",
+                                p_nom_extendable=True,
+                                efficiency=1,
+                                capital_cost=0,
+                                marginal_cost=0,
+                            )
+                            n.add(
+                                "Link",
+                                name=f"{node} Additional H2 Discharging",
+                                bus0=f"{node} Additional H2 Store",
+                                bus1=f"{node} H2",
+                                carrier="Additional_H2",
+                                p_nom_extendable=True,
+                                efficiency=1,
+                                capital_cost=0,
+                                marginal_cost=0,
+                            )
 
-    elif additional_h2_demand_type == "variable":
-
-        country_to_nodes = {node[:2]: [] for node in spatial.nodes}
-
-        for node in spatial.nodes:
-            country = node[:2]
-            country_to_nodes[country].append(node)
-
-        for country, nodes in country_to_nodes.items():
-            column_name = f"{country} variable h2 demand"
-            if column_name in additional_h2_demand_df.columns:
-                load_series = additional_h2_demand_df[column_name].values
-                load_per_node = load_series / len(nodes)
-                for node in nodes:
-                    p_set = load_per_node
-                    n.add(
-                        "Load",
-                        name=f"{node} additional h2 load",
-                        bus=f"{node} H2",
-                        carrier="Additional_H2",
-                        p_set=p_set,
+                    logger.info(
+                        f"Distributed variable H2 demand for country {country} "
+                        f"across {len(nodes)} nodes."
                     )
 
-                    if "Additional_H2" in additional_h2_storage:
-                        e_nom = (max_hours_value / 8760) * load_per_node.sum()
-                        n.add(
-                            "Store",
-                            name=f"{node} Additional H2 Store",
-                            bus=f"{node} Additional H2 Store",
-                            carrier="Additional_H2",
-                            #e_nom_extendable=True,
-                            e_nom=e_nom,
-                            e_cyclic=True,
-                            capital_cost=0,
-                            marginal_cost=0,
-                        )
-                        n.add(
-                            "Link",
-                            name=f"{node} Additional H2 Charging",
-                            bus0=f"{node} H2",
-                            bus1=f"{node} Additional H2 Store",
-                            carrier="Additional_H2",
-                            p_nom_extendable=True,
-                            efficiency=1,
-                            capital_cost=0,
-                            marginal_cost=0,
-                        )
-                        n.add(
-                            "Link",
-                            name=f"{node} Additional H2 Discharging",
-                            bus0=f"{node} Additional H2 Store",
-                            bus1=f"{node} H2",
-                            carrier="Additional_H2",
-                            p_nom_extendable=True,
-                            efficiency=1,
-                            capital_cost=0,
-                            marginal_cost=0,
-                        )
-
-                logger.info(
-                    f"Distributed variable H2 demand for country {country} "
-                    f"across {len(nodes)} nodes."
-                )
-    else:
-        raise ValueError(f"Unknown additional_h2_demand_type: {additional_h2_demand_type}")
-
-    # Add EU additional h2 demand
-    if additional_h2_demand_type == "zero":
-        p_set = [0] * 8760
-    elif additional_h2_demand_type == "constant":
-        #p_set = additional_h2_demand_df.iloc[1:, 1].values
-        p_set = [additional_h2_demand_value * 1000000 / 8760] * 8760
-    elif additional_h2_demand_type == "variable":
-        p_set = pd.to_numeric(additional_h2_demand_df["Variable H2 demand 01"], errors='coerce').values
-        # 输出 p_set 总和的百万级值
-        logging.info(f"Sum of p_set (in TWh): {p_set.sum() / 1000000} MW")
-    else:
-        raise ValueError(f"Unknown additional_h2_demand_type: {additional_h2_demand_type}")
-
-    n.add(
-        "Load",
-        name=spatial.additionalh2.nodes[0] + " load",
-        bus=spatial.additionalh2.nodes[0],
-        carrier="Additional_H2",
-        p_set=p_set,
-    )
-
-    logger.info(
-        f"Additional hydrogen demand of {additional_h2_demand_value} TWh/year added across the EU."
-    )
-
-    # Add additional H2 storage
-
-
-    #max_hours = snakemake.params.max_hours
-
-    if "Additional_H2" in additional_h2_storage:
-        #max_hours_value = max_hours["Additional_H2"]
-        e_nom = (max_hours_value / 8760) * (additional_h2_demand_value * 1000000)
-
-        logger.info(f"max_hours['Additional_H2']: {max_hours_value}")
-        logger.info(f"e_nom (calculated): {e_nom}")
-
-        n.add(
-            "Store",
-            spatial.additionalh2.stores,
-            bus=spatial.additionalh2.stores[0],
-            carrier="Additional_H2",
-            #e_nom_extendable=True,
-            e_nom=e_nom,
-            e_cyclic=True,
-            # capital_cost=costs.at["hydrogen storage underground", "capital_cost"],
-            capital_cost=0,
-            marginal_cost=0,
-        )
-
-        n.add(
-            "Link",
-            spatial.additionalh2.stores[0] + " Charging",
-            bus0=spatial.additionalh2.nodes[0],
-            bus1=spatial.additionalh2.stores[0],
-            carrier="Additional_H2",
-            p_nom_extendable=True,
-            # efficiency=costs.at["electrolysis", "efficiency"],
-            efficiency=1,
-            # capital_cost=costs.at["electrolysis", "capital_cost"],
-            capital_cost=0,
-            # marginal_cost=costs.at["electrolysis", "marginal_cost"],
-            marginal_cost=0,
-        )
-
-        n.add(
-            "Link",
-            spatial.additionalh2.stores[0] + " Discharging",
-            bus0=spatial.additionalh2.stores[0],
-            bus1=spatial.additionalh2.nodes[0],
-            carrier="Additional_H2",
-            p_nom_extendable=True,
-            # efficiency=costs.at["fuel cell", "efficiency"],
-            efficiency=1,
-            # capital_cost=costs.at["fuel cell", "capital_cost"]
-            # * costs.at["fuel cell", "efficiency"],
-            capital_cost=0,
-            # marginal_cost=costs.at["fuel cell", "marginal_cost"],
-            marginal_cost=0,
-        )
+        else:
+            raise ValueError(f"Unknown additional_h2_demand_type: {additional_h2_demand_type}")
 
     nodes = pop_layout.index
 
